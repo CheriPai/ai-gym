@@ -1,0 +1,5 @@
+gym==0.1.7
+numpy==1.11.1
+pyglet==1.2.4
+requests==2.11.0
+six==1.10.0
