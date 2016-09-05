@@ -1,5 +1,6 @@
 import gym
 import numpy as np
+import sys
 
 # num_samples = 18
 num_samples = 10
@@ -8,7 +9,7 @@ p = 0.2
 mu = np.random.rand(4)
 sigma = np.random.rand(4)
 theta = np.zeros((iterations, 4))
-scores = np.zeros(iterations)
+scores = np.zeros(num_samples)
 
 if __name__ == "__main__":
     env = gym.make("CartPole-v0")
@@ -32,6 +33,10 @@ if __name__ == "__main__":
         top_p = int(num_samples * p)
         top = scores.argsort()[-top_p:][::-1]
         mu = np.mean(theta[top], axis=0)
-        sigma = np.std(theta[top], axis=0)
-        print(mu, sigma)
+        scores = sorted(scores, reverse=True)
+        scores = np.sort(scores)[::-1]
+        if scores[0] >= 95:
+            print("Solution", theta[top[0]])
+            sys.exit(0)
+
 
