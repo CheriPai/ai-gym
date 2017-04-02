@@ -1,9 +1,10 @@
 import gym
 import json
 import numpy as np
+from gym import wrappers
 from keras.models import Sequential
 from keras.layers.core import Dense
-from keras.optimizers import sgd
+from keras.optimizers import Adam
 
 
 class ExperienceReplay(object):
@@ -24,16 +25,17 @@ class ExperienceReplay(object):
         env_dim = self.memory[0][0][0].shape[1]
         inputs = np.zeros((min(len_memory, batch_size), env_dim))
         targets = np.zeros((inputs.shape[0], num_actions))
-        for i, idx in enumerate(np.random.randint(0, len_memory,
-                                                  size=inputs.shape[0])):
+        for i, idx in enumerate(np.random.randint(0, len_memory, size=inputs.shape[0])):
             state_t, action_t, reward_t, state_tp1 = self.memory[idx][0]
             game_over = self.memory[idx][1]
 
-            inputs[i:i+1] = state_t
+            inputs[i] = state_t
+
             # There should be no target values for actions not taken.
-            # Thou shalt not correct actions not taken #deep
-            targets[i] = model.predict(state_t)[0]
-            Q_sa = np.max(model.predict(state_tp1)[0])
+            predictions = model.predict(np.concatenate((state_t, state_tp1), axis=0))
+            targets[i] = predictions[0][0]
+            Q_sa = np.max(predictions[1][0])
+
             if game_over:  # if game_over is True
                 targets[i, action_t] = reward_t
             else:
@@ -45,21 +47,23 @@ class ExperienceReplay(object):
 if __name__ == "__main__":
 
     env = gym.make("LunarLander-v2")
+    wrappers.Monitor(env, "LunarLander-experiment-1")
 
     # parameters
     epsilon = 0.1
     num_actions = env.action_space.n
     epoch = 999
-    max_memory = 500
+    max_memory = 100000
     hidden_size = 100
-    batch_size = 50
+    batch_size = 128
     grid_size = env.observation_space.shape[0]
+    max_steps = 600
 
     model = Sequential()
-    model.add(Dense(hidden_size, input_shape=(grid_size,), activation='relu'))
+    model.add(Dense(hidden_size, input_shape=(grid_size, ), activation='relu'))
     model.add(Dense(hidden_size, activation='relu'))
     model.add(Dense(num_actions))
-    model.compile(sgd(lr=.02), "mse")
+    model.compile(Adam(lr=.002), "mse")
 
     # If you want to continue training from a previous model, just uncomment the line bellow
     # model.load_weights("model.h5")
@@ -77,7 +81,7 @@ if __name__ == "__main__":
         game_over = False
         total_reward = 0
 
-        while not game_over:
+        for step in range(max_steps):
             env.render()
             input_tm1 = input_t
             # get next action
@@ -99,7 +103,11 @@ if __name__ == "__main__":
             inputs, targets = exp_replay.get_batch(model, batch_size=batch_size)
 
             loss += model.train_on_batch(inputs, targets)
-        print("Epoch {:03d}/999 | Loss {:.4f} | Reward {}".format(e, loss, total_reward))
+
+            if game_over:
+                break
+
+        print("Epoch {:03d}/{} | Loss {:.4f} | Reward {}".format(e, epoch, loss, total_reward))
 
     # Save trained model weights and architecture, this will be used by the visualization code
     model.save_weights("model.h5", overwrite=True)
