@@ -47,17 +47,16 @@ class ExperienceReplay(object):
 if __name__ == "__main__":
 
     env = gym.make("LunarLander-v2")
-    wrappers.Monitor(env, "LunarLander-experiment-1")
+    env = wrappers.Monitor(env, directory="LunarLander-experiment-1", video_callable=False, write_upon_reset=True)
 
     # parameters
-    epsilon = 0.1
+    epsilon = 1
     num_actions = env.action_space.n
     epoch = 999
     max_memory = 100000
     hidden_size = 100
     batch_size = 128
     grid_size = env.observation_space.shape[0]
-    max_steps = 600
 
     model = Sequential()
     model.add(Dense(hidden_size, input_shape=(grid_size, ), activation='relu'))
@@ -66,7 +65,7 @@ if __name__ == "__main__":
     model.compile(Adam(lr=.002), "mse")
 
     # If you want to continue training from a previous model, just uncomment the line bellow
-    # model.load_weights("model.h5")
+    model.load_weights("model.h5")
 
     # Define environment/game
 
@@ -74,14 +73,16 @@ if __name__ == "__main__":
     exp_replay = ExperienceReplay(max_memory=max_memory)
 
     for e in range(epoch):
-        # Use linearly decreasing function for random action hyperparameter
+
+        epsilon = max(0.10, epsilon * 0.985)
+
         loss = 0.
         # get initial input
         input_t = np.array(env.reset()).reshape(1, -1)
         game_over = False
         total_reward = 0
 
-        for step in range(max_steps):
+        while not game_over:
             env.render()
             input_tm1 = input_t
             # get next action
@@ -103,9 +104,6 @@ if __name__ == "__main__":
             inputs, targets = exp_replay.get_batch(model, batch_size=batch_size)
 
             loss += model.train_on_batch(inputs, targets)
-
-            if game_over:
-                break
 
         print("Epoch {:03d}/{} | Loss {:.4f} | Reward {}".format(e, epoch, loss, total_reward))
 
