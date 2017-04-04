@@ -1,42 +1,39 @@
-import gym
 import numpy as np
-import sys
+import gym
 
-# num_samples = 18
-num_samples = 10
-iterations = 100
-p = 0.2
-mu = np.random.rand(4)
-sigma = np.random.rand(4)
-theta = np.zeros((iterations, 4))
-scores = np.zeros(num_samples)
+from keras.models import Sequential
+from keras.layers import Dense, Activation, Flatten
+from keras.optimizers import Adam
 
-if __name__ == "__main__":
-    env = gym.make("CartPole-v0")
-
-    while True:
-        for i in range(num_samples):
-            observation = env.reset()
-            theta[i] = np.random.normal(mu, sigma, 4)
-            for t in range(iterations):
-                env.render()
-                action = np.dot(theta[i], observation)
-                if action < 0:
-                    action = 0
-                else:
-                    action = 1
-                observation, reward, done, info = env.step(action)
-                if done:
-                    scores[i] = t+1
-                    print("Episode finished after {} timesteps".format(scores[i]))
-                    break
-        top_p = int(num_samples * p)
-        top = scores.argsort()[-top_p:][::-1]
-        mu = np.mean(theta[top], axis=0)
-        scores = sorted(scores, reverse=True)
-        scores = np.sort(scores)[::-1]
-        if scores[0] >= 95:
-            print("Solution", theta[top[0]])
-            sys.exit(0)
+from rl.agents.dqn import DQNAgent
+from rl.policy import BoltzmannQPolicy
+from rl.memory import SequentialMemory
 
 
+ENV_NAME = 'CartPole-v0'
+
+
+env = gym.make(ENV_NAME)
+nb_actions = env.action_space.n
+
+model = Sequential()
+model.add(Flatten(input_shape=(1,) + env.observation_space.shape))
+model.add(Dense(16))
+model.add(Activation('relu'))
+model.add(Dense(16))
+model.add(Activation('relu'))
+model.add(Dense(16))
+model.add(Activation('relu'))
+model.add(Dense(nb_actions))
+model.add(Activation('linear'))
+print(model.summary())
+
+memory = SequentialMemory(limit=50000, window_length=1)
+policy = BoltzmannQPolicy()
+dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=10,
+               target_model_update=1e-2, policy=policy, enable_double_dqn=True)
+dqn.compile(Adam(lr=1e-3), metrics=['mae'])
+
+dqn.fit(env, nb_steps=50000, visualize=False, verbose=2)
+dqn.save_weights('dqn_{}_weights.h5f'.format(ENV_NAME), overwrite=True)
+dqn.test(env, nb_episodes=5, visualize=True)

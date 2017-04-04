@@ -1,113 +1,39 @@
-import gym
-import json
 import numpy as np
-from gym import wrappers
+import gym
+
 from keras.models import Sequential
-from keras.layers.core import Dense
+from keras.layers import Dense, Activation, Flatten
 from keras.optimizers import Adam
 
-
-class ExperienceReplay(object):
-    def __init__(self, max_memory=100, discount=.9):
-        self.max_memory = max_memory
-        self.memory = list()
-        self.discount = discount
-
-    def remember(self, states, game_over):
-        # memory[i] = [[state_t, action_t, reward_t, state_t+1], game_over?]
-        self.memory.append([states, game_over])
-        if len(self.memory) > self.max_memory:
-            del self.memory[0]
-
-    def get_batch(self, model, batch_size=10):
-        len_memory = len(self.memory)
-        num_actions = model.output_shape[-1]
-        env_dim = self.memory[0][0][0].shape[1]
-        inputs = np.zeros((min(len_memory, batch_size), env_dim))
-        targets = np.zeros((inputs.shape[0], num_actions))
-        for i, idx in enumerate(np.random.randint(0, len_memory, size=inputs.shape[0])):
-            state_t, action_t, reward_t, state_tp1 = self.memory[idx][0]
-            game_over = self.memory[idx][1]
-
-            inputs[i] = state_t
-
-            # There should be no target values for actions not taken.
-            predictions = model.predict(np.concatenate((state_t, state_tp1), axis=0))
-            targets[i] = predictions[0][0]
-            Q_sa = np.max(predictions[1][0])
-
-            if game_over:  # if game_over is True
-                targets[i, action_t] = reward_t
-            else:
-                # reward_t + gamma * max_a' Q(s', a')
-                targets[i, action_t] = reward_t + self.discount * Q_sa
-        return inputs, targets
+from rl.agents.dqn import DQNAgent
+from rl.policy import BoltzmannQPolicy
+from rl.memory import SequentialMemory
 
 
-if __name__ == "__main__":
+ENV_NAME = 'LunarLander-v2'
 
-    env = gym.make("LunarLander-v2")
-    env = wrappers.Monitor(env, directory="LunarLander-experiment-1", video_callable=False, write_upon_reset=True)
 
-    # parameters
-    epsilon = 1
-    num_actions = env.action_space.n
-    epoch = 999
-    max_memory = 100000
-    hidden_size = 100
-    batch_size = 128
-    grid_size = env.observation_space.shape[0]
+env = gym.make(ENV_NAME)
+nb_actions = env.action_space.n
 
-    model = Sequential()
-    model.add(Dense(hidden_size, input_shape=(grid_size, ), activation='relu'))
-    model.add(Dense(hidden_size, activation='relu'))
-    model.add(Dense(num_actions))
-    model.compile(Adam(lr=.002), "mse")
+model = Sequential()
+model.add(Flatten(input_shape=(1,) + env.observation_space.shape))
+model.add(Dense(16))
+model.add(Activation('relu'))
+model.add(Dense(16))
+model.add(Activation('relu'))
+model.add(Dense(16))
+model.add(Activation('relu'))
+model.add(Dense(nb_actions))
+model.add(Activation('linear'))
+print(model.summary())
 
-    # If you want to continue training from a previous model, just uncomment the line bellow
-    model.load_weights("model.h5")
+memory = SequentialMemory(limit=100000, window_length=1)
+policy = BoltzmannQPolicy()
+dqn = DQNAgent(model=model, nb_actions=nb_actions, memory=memory, nb_steps_warmup=1000,
+               target_model_update=1e-2, policy=policy, enable_double_dqn=True)
+dqn.compile(Adam(lr=1e-3), metrics=['mae'])
 
-    # Define environment/game
-
-    # Initialize experience replay object
-    exp_replay = ExperienceReplay(max_memory=max_memory)
-
-    for e in range(epoch):
-
-        epsilon = max(0.10, epsilon * 0.985)
-
-        loss = 0.
-        # get initial input
-        input_t = np.array(env.reset()).reshape(1, -1)
-        game_over = False
-        total_reward = 0
-
-        while not game_over:
-            env.render()
-            input_tm1 = input_t
-            # get next action
-            if np.random.rand() <= epsilon:
-                action = np.random.randint(0, num_actions, size=1).squeeze()
-            else:
-                q = model.predict(input_tm1)
-                action = np.argmax(q[0])
-
-            # apply action, get rewards and new state
-            input_t, reward, game_over, info = env.step(action)
-            input_t = np.array(input_t).reshape(1, -1)
-            total_reward += reward
-
-            # store experience
-            exp_replay.remember([input_tm1, action, reward, input_t], game_over)
-
-            # adapt model
-            inputs, targets = exp_replay.get_batch(model, batch_size=batch_size)
-
-            loss += model.train_on_batch(inputs, targets)
-
-        print("Epoch {:03d}/{} | Loss {:.4f} | Reward {}".format(e, epoch, loss, total_reward))
-
-    # Save trained model weights and architecture, this will be used by the visualization code
-    model.save_weights("model.h5", overwrite=True)
-    with open("model.json", "w") as outfile:
-        json.dump(model.to_json(), outfile)
+dqn.fit(env, nb_steps=100000, visualize=False, verbose=2)
+dqn.save_weights('dqn_{}_weights.h5f'.format(ENV_NAME), overwrite=True)
+dqn.test(env, nb_episodes=5, visualize=True)
