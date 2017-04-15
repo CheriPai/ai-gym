@@ -1,0 +1,16 @@
+{
+    "experiment_name": "CartPole",
+    "environments": {
+        "type": "single",
+        "source": "CartPole-v0"
+    },
+    "agent": {
+        "name": "A3C",
+        "args": {
+            "monitor_path": "/tmp/CartPole-v0",
+            "video": false,
+            "save_model": true,
+            "monitor": true
+        }
+    }
+}
